@@ -54,7 +54,7 @@ The application contains two main sections:
 
 ### 3. Top Venues by Match Count
 
-![Top Venues Analysis](screenshots/venue-analysis.png)
+![Top Venues Analysis](screnshot/Screenshot%202026-10-14%20012506.png)
 
 ### 4. Season-wise Runs and Toss Analysis
 
