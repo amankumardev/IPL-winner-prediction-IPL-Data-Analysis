@@ -50,7 +50,7 @@ The application contains two main sections:
 
 ### 2. Team Wins Comparison
 
-![Team Wins Comparison](screenshots/team-wins-comparison.png)
+![Team Wins Comparison](screnshot/Screenshot%202026-10-14%20012423.)
 
 ### 3. Top Venues by Match Count
 
