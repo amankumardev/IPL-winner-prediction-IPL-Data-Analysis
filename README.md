@@ -66,7 +66,7 @@ The application contains two main sections:
 
 ### 6. Prediction Result
 
-![IPL Winner Prediction Result](screenshots/winner-prediction-result.png)
+![IPL Winner Prediction Result](screnshot/Screenshot%202026-10-14%20012643.png)
 
 > **Note:** Create a folder named `screenshots` in your repository and place the corresponding image files inside it. Use the exact filenames referenced above.
 
