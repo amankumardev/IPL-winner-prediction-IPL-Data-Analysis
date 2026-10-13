@@ -62,7 +62,7 @@ The application contains two main sections:
 
 ### 5. Winner Prediction Interface
 
-![IPL Winner Prediction Form](screenshots/winner-prediction-form.png)
+![IPL Winner Prediction Form](screnshot/Screenshot%202026-10-14%20012631.png)
 
 ### 6. Prediction Result
 
