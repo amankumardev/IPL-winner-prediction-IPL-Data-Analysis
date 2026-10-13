@@ -58,7 +58,7 @@ The application contains two main sections:
 
 ### 4. Season-wise Runs and Toss Analysis
 
-![Season Runs and Toss Analysis](screenshots/season-runs-toss-analysis.png)
+![Season Runs and Toss Analysis](screnshot/Screenshot%202026-10-14%20012609.png)
 
 ### 5. Winner Prediction Interface
 
