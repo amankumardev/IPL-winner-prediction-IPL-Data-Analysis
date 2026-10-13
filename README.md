@@ -46,7 +46,7 @@ The application contains two main sections:
 
 ### 1. Analytics Dashboard
 
-![IPL Analytics Dashboard](screenshots/dashboard-overview.png)
+![IPL Analytics Dashboard](screnshot/Screenshot-2026-10-14-012406.png)
 
 ### 2. Team Wins Comparison
 
