@@ -16,6 +16,8 @@ st.set_page_config(
     layout="wide",
 )
 
+# Keep app.py and the required CSV/model files in the same project folder.
+# This works locally in VS Code and after deployment on Streamlit Cloud.
 BASE_DIR = Path(__file__).resolve().parent
 
 MODEL_PATH = BASE_DIR / "ipl_winner_model.pkl"
@@ -533,83 +535,137 @@ elif page == "Winner Prediction":
 
     if st.button("🚀 Predict Match Winner", type="primary"):
 
-        # Use average historical feature values as a baseline.
-        # These are not exact pre-match, team-specific calculations.
-        numeric_features = [
-            "team1_h2h_rate",
-            "team2_h2h_rate",
-            "team1_recent_form",
-            "team2_recent_form",
-            "team1_venue_win_rate",
-            "team2_venue_win_rate",
-        ]
-
-        averages = history[numeric_features].apply(
-            pd.to_numeric, errors="coerce"
-        ).mean()
-
-        toss_winner_is_team1 = int(toss_winner == team_1)
-
-        input_data = pd.DataFrame([{
-            "team_1": team_1,
-            "team_2": team_2,
-            "venue": venue,
-            "toss_winner_is_team1": toss_winner_is_team1,
-            "toss_decision": toss_decision,
-            "team1_h2h_rate": averages["team1_h2h_rate"],
-            "team2_h2h_rate": averages["team2_h2h_rate"],
-            "team1_recent_form": averages["team1_recent_form"],
-            "team2_recent_form": averages["team2_recent_form"],
-            "team1_venue_win_rate": averages["team1_venue_win_rate"],
-            "team2_venue_win_rate": averages["team2_venue_win_rate"],
-        }], columns=required_features)
-
+        # Build team-specific historical features from actual past results.
+        # History is ordered chronologically; only rows with known winners are used.
         try:
-            prediction = model.predict(input_data)[0]
+            hist = history.copy()
+            hist["start_date"] = pd.to_datetime(
+                hist.get("start_date"), errors="coerce"
+            )
+            if "match_id" in hist.columns:
+                hist["match_id"] = pd.to_numeric(
+                    hist["match_id"], errors="coerce"
+                )
+                hist = hist.sort_values(
+                    ["start_date", "match_id"], na_position="last"
+                )
+            else:
+                hist = hist.sort_values("start_date", na_position="last")
+
+            for col in ["team_1", "team_2", "venue", "winner"]:
+                if col not in hist.columns:
+                    raise ValueError(f"History CSV mein '{col}' column missing hai.")
+                hist[col] = hist[col].fillna("").astype(str).str.strip()
+
+            hist = hist[
+                hist["winner"].ne("")
+                & hist["winner"].str.lower().ne("nan")
+                & hist["winner"].str.lower().ne("unknown")
+                & hist["winner"].isin(set(hist["team_1"]) | set(hist["team_2"]))
+            ].copy()
+
+            def team_recent_form(team_name):
+                played = hist[
+                    hist["team_1"].eq(team_name) | hist["team_2"].eq(team_name)
+                ].tail(5)
+                if played.empty:
+                    return 0.5
+                return float((played["winner"] == team_name).mean())
+
+            def head_to_head_rate(team_name, opponent):
+                pair = hist[
+                    ((hist["team_1"].eq(team_name) & hist["team_2"].eq(opponent))
+                     | (hist["team_1"].eq(opponent) & hist["team_2"].eq(team_name)))
+                ]
+                if pair.empty:
+                    return 0.5
+                return float((pair["winner"] == team_name).mean())
+
+            def venue_win_rate(team_name, selected_venue):
+                at_venue = hist[
+                    hist["venue"].eq(selected_venue)
+                    & (hist["team_1"].eq(team_name) | hist["team_2"].eq(team_name))
+                ]
+                if at_venue.empty:
+                    return 0.5
+                return float((at_venue["winner"] == team_name).mean())
+
+            # Feature values are attached to the team, not to the left/right slot.
+            team1_features = {
+                "team1_h2h_rate": head_to_head_rate(team_1, team_2),
+                "team1_recent_form": team_recent_form(team_1),
+                "team1_venue_win_rate": venue_win_rate(team_1, venue),
+            }
+            team2_features = {
+                "team2_h2h_rate": head_to_head_rate(team_2, team_1),
+                "team2_recent_form": team_recent_form(team_2),
+                "team2_venue_win_rate": venue_win_rate(team_2, venue),
+            }
+
+            toss_is_team1 = int(toss_winner == team_1)
+            input_data = pd.DataFrame([{
+                "team_1": team_1,
+                "team_2": team_2,
+                "venue": venue,
+                "toss_winner_is_team1": toss_is_team1,
+                "toss_decision": toss_decision,
+                **team1_features,
+                **team2_features,
+            }], columns=required_features)
+
+            # Also predict with the teams swapped. This symmetry correction
+            # prevents a fixed left/right slot from systematically receiving
+            # a higher probability. The same physical team keeps its own stats.
+            reversed_input = pd.DataFrame([{
+                "team_1": team_2,
+                "team_2": team_1,
+                "venue": venue,
+                "toss_winner_is_team1": int(toss_winner == team_2),
+                "toss_decision": toss_decision,
+                "team1_h2h_rate": team2_features["team2_h2h_rate"],
+                "team2_h2h_rate": team1_features["team1_h2h_rate"],
+                "team1_recent_form": team2_features["team2_recent_form"],
+                "team2_recent_form": team1_features["team1_recent_form"],
+                "team1_venue_win_rate": team2_features["team2_venue_win_rate"],
+                "team2_venue_win_rate": team1_features["team1_venue_win_rate"],
+            }], columns=required_features)
+
+            classes = list(model.classes_)
+            if 1 not in classes or 0 not in classes:
+                raise ValueError(
+                    f"Unexpected model classes {classes}; expected classes 0 and 1."
+                )
+
+            forward_probabilities = model.predict_proba(input_data)[0]
+            reverse_probabilities = model.predict_proba(reversed_input)[0]
+            p_team1_forward = float(forward_probabilities[classes.index(1)])
+            p_team1_in_reversed_order = float(reverse_probabilities[classes.index(1)])
+
+            # Average forward Team 1 probability and the complementary reverse one.
+            prob_team1 = (p_team1_forward + (1.0 - p_team1_in_reversed_order)) / 2.0
+            prob_team1 = min(1.0, max(0.0, prob_team1))
+            prob_team2 = 1.0 - prob_team1
 
             st.divider()
             st.subheader("📊 Prediction Result")
+            predicted_winner = team_1 if prob_team1 >= 0.5 else team_2
+            st.success(f"Predicted Winner: {predicted_winner}")
 
-            if int(prediction) == 1:
-                st.success(f"Predicted Winner: {team_1}")
-            else:
-                st.success(f"Predicted Winner: {team_2}")
+            st.caption(
+                "Experimental estimate based on historical team form, head-to-head, "
+                "venue records, toss details, and a team-order symmetry correction. "
+                "It is not a guarantee of the actual result."
+            )
 
-            if hasattr(model, "predict_proba"):
-                probabilities = model.predict_proba(input_data)[0]
+            pcol1, pcol2 = st.columns(2)
+            pcol1.metric(f"{team_1} Win Probability", f"{prob_team1 * 100:.1f}%")
+            pcol2.metric(f"{team_2} Win Probability", f"{prob_team2 * 100:.1f}%")
 
+            with st.expander("View features used for this prediction"):
+                st.dataframe(input_data, use_container_width=True, hide_index=True)
                 st.caption(
-                    "Experimental model probabilities — "
-                    "not a guarantee of the actual result."
-                )
-
-                classes = list(model.classes_)
-
-                prob_team_1 = (
-                    float(probabilities[classes.index(1)]) * 100
-                    if 1 in classes else 0.0
-                )
-
-                prob_team_2 = (
-                    float(probabilities[classes.index(0)]) * 100
-                    if 0 in classes else 0.0
-                )
-
-                pcol1, pcol2 = st.columns(2)
-
-                pcol1.metric(
-                    f"{team_1} Win Probability",
-                    f"{prob_team_1:.1f}%",
-                )
-
-                pcol2.metric(
-                    f"{team_2} Win Probability",
-                    f"{prob_team_2:.1f}%",
-                )
-
-                st.caption(
-                    "Historical feature values use dataset averages. "
-                    "This is a prototype, not a reliable betting forecast."
+                    "Recent form uses each team's latest five recorded matches in the history file. "
+                    "If no prior head-to-head or venue matches exist, the neutral default is 50%."
                 )
 
         except Exception as e:
